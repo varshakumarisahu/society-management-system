@@ -1,0 +1,53 @@
+  services:
+    society_db:
+      container_name: society_backend_db
+      image: postgres:15-alpine
+      restart: unless-stopped
+
+      environment:
+        POSTGRES_USER: ${DATABASE_USERNAME}
+        POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+        POSTGRES_DB: ${DATABASE_NAME}
+
+      env_file:
+        - .env
+
+      ports:
+        - "5434:5432"
+
+      volumes:
+        - society_backend_pgdata:/var/lib/postgresql/data
+        - ./init_db.sql:/docker-entrypoint-initdb.d/init_db.sql:ro
+
+      healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME} -d ${DATABASE_NAME}"]
+        interval: 5s
+        timeout: 5s
+        retries: 5
+
+    society_api:
+      container_name: society_backend_api
+
+      build:
+        context: .
+        dockerfile: Dockerfile
+
+      restart: unless-stopped
+
+      ports:
+        - "8080:8080"
+
+      env_file:
+        - .env
+
+      volumes:
+        - .:/app
+
+      depends_on:
+        society_db:
+          condition: service_healthy
+
+      command: uvicorn server.main:app --host 0.0.0.0 --port 8080 --reload
+
+  volumes:
+    society_backend_pgdata:
