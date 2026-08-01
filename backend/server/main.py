@@ -13,6 +13,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from server.db.database import connect_db, disconnect_db
 from server.api.v1.auth import auth_router
+from server.api.v1.blocks import blocks_router
+from server.api.v1.flats import flats_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -53,6 +56,9 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(blocks_router)
+app.include_router(flats_router)
+
 
 @app.get("/")
 async def root() -> dict[str, str]:
