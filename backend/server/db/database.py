@@ -9,6 +9,7 @@ from collections.abc import Generator
 
 from psycopg import Connection
 from psycopg_pool import ConnectionPool
+from psycopg.rows import dict_row     
 
 from server.core.config import settings
 
@@ -19,6 +20,7 @@ pool = ConnectionPool(
     min_size=1,
     max_size=10,
     open=False,
+    kwargs={"row_factory": dict_row}, 
 )
 
 

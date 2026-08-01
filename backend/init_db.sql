@@ -267,7 +267,20 @@ CREATE INDEX idx_maintenance_bills_due_date ON maintenance_bills(due_date);
 CREATE INDEX idx_maintenance_payments_bill_id ON maintenance_payments(bill_id);
 CREATE INDEX idx_notifications_user_id ON notifications(user_id);
 CREATE INDEX idx_notifications_is_read ON notifications(is_read);
+-- ============================================================================
+-- SEED DATA (Default Admin User)
+-- ============================================================================
 
+-- Password: password123
+INSERT INTO users (username, email, password_hash, full_name, role, status) 
+VALUES (
+    'admin', 
+    'admin@society.com', 
+    '$2b$12$sDgWkdh5bVdkudjnWmGxkuznceQN6shSANWBRAP0d2eg5SuNw7ft2', 
+    'System Admin', 
+    'admin', 
+    'active'
+);
 -- ============================================================================
 -- END OF SCHEMA (15 tables)
 -- ============================================================================
