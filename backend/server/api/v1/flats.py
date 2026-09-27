@@ -8,7 +8,7 @@ see server/services/flat_service.py for that.
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from psycopg import Connection
 
-from server.api.dependencies import get_current_user
+from server.api.dependencies import get_current_user, require_role
 from server.db.database import get_db
 from server.schemas.auth import UserOut
 from server.schemas.flat import (
@@ -27,7 +27,7 @@ flats_router = APIRouter(prefix="/api/v1/flats", tags=["Flats"])
 def create_flat(
     body: FlatCreate,
     db: Connection = Depends(get_db),
-    current_user: UserOut = Depends(get_current_user),
+    current_user: UserOut = Depends(require_role("admin", "committee_member")),
 ) -> FlatResponse:
     """
     Create a new flat.
@@ -88,7 +88,7 @@ def update_flat(
     flat_id: int,
     body: FlatUpdate,
     db: Connection = Depends(get_db),
-    current_user: UserOut = Depends(get_current_user),
+    current_user: UserOut = Depends(require_role("admin", "committee_member")),
 ) -> FlatResponse:
     """
     Update an existing flat. Only the fields supplied in the body are changed.
@@ -110,7 +110,7 @@ def update_flat(
 def delete_flat(
     flat_id: int,
     db: Connection = Depends(get_db),
-    current_user: UserOut = Depends(get_current_user),
+    current_user: UserOut = Depends(require_role("admin", "committee_member")),
 ) -> dict[str, str]:
     """
     Delete a flat.

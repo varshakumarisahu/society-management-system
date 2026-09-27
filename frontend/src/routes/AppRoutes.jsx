@@ -76,7 +76,7 @@ const AppRoutes = () => {
       <Route 
         path="/complaints" 
         element={
-          <ProtectedLayout requiredPermission="manage_complaints">
+          <ProtectedLayout requiredPermission="submit_complaints">
             <Complaints />
           </ProtectedLayout>
         } 
@@ -85,7 +85,7 @@ const AppRoutes = () => {
       <Route 
         path="/notices" 
         element={
-          <ProtectedLayout requiredPermission="manage_notices">
+          <ProtectedLayout requiredPermission="view_notices">
             <Notices />
           </ProtectedLayout>
         } 
@@ -94,7 +94,7 @@ const AppRoutes = () => {
       <Route 
         path="/maintenance" 
         element={
-          <ProtectedLayout requiredPermission="manage_maintenance">
+          <ProtectedLayout requiredPermission="view_maintenance">
             <Maintenance />
           </ProtectedLayout>
         } 

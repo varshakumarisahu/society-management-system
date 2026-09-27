@@ -15,6 +15,13 @@ from server.db.database import connect_db, disconnect_db
 from server.api.v1.auth import auth_router
 from server.api.v1.blocks import blocks_router
 from server.api.v1.flats import flats_router
+from server.api.v1.residents import resident_router
+from server.api.v1.visitors import visitor_router
+from server.api.v1.complaints import complaints_router
+from server.api.v1.notices import notices_router
+from server.api.v1.maintenance import maintenance_router
+from server.api.v1.notifications import notifications_router
+from server.api.v1.settings import settings_router
 
 
 @asynccontextmanager
@@ -58,6 +65,13 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(blocks_router)
 app.include_router(flats_router)
+app.include_router(resident_router)
+app.include_router(visitor_router)
+app.include_router(complaints_router)
+app.include_router(notices_router)
+app.include_router(maintenance_router)
+app.include_router(notifications_router)
+app.include_router(settings_router)
 
 
 @app.get("/")

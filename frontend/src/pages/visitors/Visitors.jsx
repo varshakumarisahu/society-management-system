@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { apiRequest, apiJson } from '../../services/api';
 import './Visitors.css';
 
 // Mock Data
@@ -66,9 +68,13 @@ const MOCK_VISITORS = [
 ];
 
 const Visitors = () => {
-  const [visitors, setVisitors] = useState(MOCK_VISITORS);
-  const [filteredVisitors, setFilteredVisitors] = useState(MOCK_VISITORS);
-  const [loading, setLoading] = useState(false);
+  const [visitors, setVisitors] = useState([]);
+  const [filteredVisitors, setFilteredVisitors] = useState([]);
+  const [flats, setFlats] = useState([]);
+  const [residents, setResidents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
@@ -84,6 +90,28 @@ const Visitors = () => {
     status: 'In',
     securityGuard: ''
   });
+
+  const loadVisitors = async () => {
+    setLoading(true);
+    try {
+      const [rows, flatResult, residentRows] = await Promise.all([
+        apiRequest('/visitors/'), apiRequest('/api/v1/flats'),
+        apiRequest(user?.role === 'security' ? '/visitors/hosts' : '/residents/')
+      ]);
+      setFlats(flatResult.items); setResidents(residentRows);
+      setVisitors(rows.map(v => ({
+        id: v.visitor_id, name: v.name, contact: v.phone || '',
+        whomToMeet: v.host_name || '', flat_id: v.flat_id,
+        flatNumber: v.flat_identifier || '', purpose: v.purpose || '',
+        checkIn: v.check_in_time, checkOut: v.check_out_time,
+        status: v.status === 'checked_in' ? 'In' : v.status === 'checked_out' ? 'Checked Out' : 'Denied',
+        securityGuard: String(v.registered_by)
+      })));
+      setError('');
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { loadVisitors(); }, []);
 
   // Filter visitors
   useEffect(() => {
@@ -138,35 +166,35 @@ const Visitors = () => {
     setShowModal(true);
   };
 
-  const handleSave = () => {
-    if (editingVisitor) {
-      setVisitors(visitors.map(v => 
-        v.id === editingVisitor.id ? { ...formData, id: v.id } : v
-      ));
-    } else {
-      const newVisitor = {
-        ...formData,
-        id: visitors.length + 1,
-        checkIn: formData.checkIn || new Date().toLocaleString('en-US', { hour12: false }).replace(',', ''),
-        checkOut: formData.checkOut || null,
-        status: formData.status || 'In'
-      };
-      setVisitors([...visitors, newVisitor]);
-    }
-    setShowModal(false);
+  const handleSave = async () => {
+    if (editingVisitor) { setError('Editing visitor records is not available in the backend yet.'); return; }
+    const flat = flats.find(f => f.flat_number.toLowerCase() === formData.flatNumber.trim().toLowerCase() ||
+      `${f.block_name.replace(/^Block\s+/i, '')} - ${f.flat_number}`.toLowerCase() === formData.flatNumber.trim().toLowerCase());
+    const host = residents.find(r => r.full_name.toLowerCase() === formData.whomToMeet.trim().toLowerCase());
+    if (!flat) { setError('Enter a flat number that exists in the Flats page.'); return; }
+    if (!host) { setError('Enter the name of a resident registered in that flat.'); return; }
+    try {
+      await apiRequest('/visitors/', apiJson('POST', {
+        name: formData.name, phone: formData.contact || null, purpose: formData.purpose || null,
+        flat_id: flat.flat_id, host_resident_id: host.resident_id,
+        registered_by: user?.user_id || user?.id, status: 'checked_in'
+      }));
+      await loadVisitors(); setShowModal(false); setError('');
+    } catch (e) { setError(e.message); }
   };
 
   const handleDelete = (id) => {
     if (window.confirm('Are you sure you want to delete this visitor record?')) {
-      setVisitors(visitors.filter(v => v.id !== id));
+      setError('Deleting visitor records is not available in the backend yet.');
     }
   };
 
   const handleCheckOut = (id) => {
-    const now = new Date().toLocaleString('en-US', { hour12: false }).replace(',', '');
-    setVisitors(visitors.map(v => 
-      v.id === id ? { ...v, checkOut: now, status: 'Checked Out' } : v
-    ));
+    apiRequest(`/visitors/${id}/check-out`, { method: 'PATCH' }).then(loadVisitors).catch(e => setError(e.message));
+  };
+
+  const handleDeny = (id) => {
+    apiRequest(`/visitors/${id}/deny`, { method: 'PATCH' }).then(loadVisitors).catch(e => setError(e.message));
   };
 
   const getStatusBadge = (status) => {
@@ -207,6 +235,7 @@ const Visitors = () => {
           </button>
         </div>
       </div>
+      {error && <div role="alert" className="error-message">{error}</div>}
 
       {/* Search and Filter */}
       <div className="search-filter-section glass">
@@ -284,29 +313,24 @@ const Visitors = () => {
                       <td>{getStatusBadge(visitor.status)}</td>
                       <td>
                         <div className="action-buttons">
-                          <button 
-                            className="action-btn edit"
-                            onClick={() => handleEdit(visitor)}
-                            title="Edit"
-                          >
-                            <i className="fas fa-edit"></i>
-                          </button>
                           {visitor.status === 'In' && (
-                            <button 
-                              className="action-btn checkout"
-                              onClick={() => handleCheckOut(visitor.id)}
-                              title="Check Out"
-                            >
-                              <i className="fas fa-sign-out-alt"></i>
-                            </button>
+                            <>
+                              <button
+                                className="action-btn checkout"
+                                onClick={() => handleCheckOut(visitor.id)}
+                                title="Check Out"
+                              >
+                                <i className="fas fa-sign-out-alt"></i>
+                              </button>
+                              <button
+                                className="action-btn delete"
+                                onClick={() => handleDeny(visitor.id)}
+                                title="Deny Entry"
+                              >
+                                <i className="fas fa-ban"></i>
+                              </button>
+                            </>
                           )}
-                          <button 
-                            className="action-btn delete"
-                            onClick={() => handleDelete(visitor.id)}
-                            title="Delete"
-                          >
-                            <i className="fas fa-trash"></i>
-                          </button>
                         </div>
                       </td>
                     </tr>

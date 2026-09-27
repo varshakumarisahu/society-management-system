@@ -1,272 +1,195 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { apiJson, apiRequest } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import './Complaints.css';
 
-// Mock Data
-const MOCK_COMPLAINTS = [
-  {
-    id: 1,
-    title: 'Water Leakage in Kitchen',
-    description: 'There is a severe water leakage from the ceiling in the kitchen area.',
-    category: 'Plumbing',
-    priority: 'High',
-    submittedBy: 'John Doe',
-    flatNumber: 'A-101',
-    assignedTo: 'Ramesh Singh',
-    status: 'In Progress',
-    createdAt: '2026-07-18 09:30:00',
-    updatedAt: '2026-07-19 14:20:00',
-    resolvedAt: null,
-    resolutionNotes: '',
-    attachments: []
-  },
-  {
-    id: 2,
-    title: 'Garbage Not Collected',
-    description: 'The garbage has not been collected for the past 3 days.',
-    category: 'Cleaning',
-    priority: 'Medium',
-    submittedBy: 'Sarah Smith',
-    flatNumber: 'B-205',
-    assignedTo: 'Vikram Patel',
-    status: 'Open',
-    createdAt: '2026-07-19 10:15:00',
-    updatedAt: '2026-07-19 10:15:00',
-    resolvedAt: null,
-    resolutionNotes: '',
-    attachments: []
-  },
-  {
-    id: 3,
-    title: 'Lift Malfunction',
-    description: 'The lift in block C is not working since morning.',
-    category: 'Electrical',
-    priority: 'High',
-    submittedBy: 'Mike Johnson',
-    flatNumber: 'C-309',
-    assignedTo: null,
-    status: 'Open',
-    createdAt: '2026-07-20 08:45:00',
-    updatedAt: '2026-07-20 08:45:00',
-    resolvedAt: null,
-    resolutionNotes: '',
-    attachments: []
-  },
-  {
-    id: 4,
-    title: 'Parking Issue',
-    description: 'Someone is occupying my reserved parking slot P-4.',
-    category: 'Security',
-    priority: 'Medium',
-    submittedBy: 'Emily Davis',
-    flatNumber: 'A-402',
-    assignedTo: 'Ramesh Singh',
-    status: 'Resolved',
-    createdAt: '2026-07-15 16:00:00',
-    updatedAt: '2026-07-16 11:30:00',
-    resolvedAt: '2026-07-16 11:30:00',
-    resolutionNotes: 'Issue resolved by security. Offender was warned.',
-    attachments: []
-  },
-  {
-    id: 5,
-    title: 'Noise Complaint',
-    description: 'Loud music coming from flat C-305 every night.',
-    category: 'Noise',
-    priority: 'Low',
-    submittedBy: 'Charles Douglas',
-    flatNumber: 'D-501',
-    assignedTo: 'Vikram Patel',
-    status: 'Closed',
-    createdAt: '2026-07-10 22:00:00',
-    updatedAt: '2026-07-12 09:00:00',
-    resolvedAt: '2026-07-12 09:00:00',
-    resolutionNotes: 'Resident was warned. Noise levels have reduced.',
-    attachments: []
-  }
-];
+const titleCase = value => (value || '').replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+
+const mapComplaint = complaint => ({
+  id: complaint.complaint_id,
+  title: complaint.subject,
+  description: complaint.description || '',
+  category: complaint.category || 'Other',
+  priority: titleCase(complaint.priority),
+  statusKey: complaint.status,
+  status: complaint.status === 'assigned' ? 'In Progress' : titleCase(complaint.status),
+  submittedBy: complaint.resident_name,
+  residentId: complaint.resident_id,
+  flatId: complaint.flat_id,
+  flatNumber: `${complaint.flat_number} (${complaint.block_name})`,
+  assignedTo: complaint.assigned_to_name,
+  assignedToId: complaint.assigned_to,
+  createdAt: complaint.created_at,
+  updatedAt: complaint.updated_at,
+  resolvedAt: complaint.resolved_at,
+  resolutionNotes: complaint.resolution_notes || ''
+});
+
+const emptyForm = {
+  title: '', description: '', category: 'Plumbing', priority: 'Medium', residentId: ''
+};
 
 const Complaints = () => {
-  const [complaints, setComplaints] = useState(MOCK_COMPLAINTS);
-  const [filteredComplaints, setFilteredComplaints] = useState(MOCK_COMPLAINTS);
-  const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
+  const isResident = user?.role === 'resident';
+  const [complaints, setComplaints] = useState([]);
+  const [residents, setResidents] = useState([]);
+  const [assignees, setAssignees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [editingComplaint, setEditingComplaint] = useState(null);
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    category: 'Plumbing',
-    priority: 'Medium',
-    assignedTo: '',
-    status: 'Open',
-    resolutionNotes: '',
-    flatNumber: '',
-    submittedBy: ''
+  const [formData, setFormData] = useState(emptyForm);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [complaintRows, residentRows, assigneeRows] = await Promise.all([
+        apiRequest('/api/v1/complaints'),
+        isResident ? Promise.resolve([]) : apiRequest('/residents/?status=active'),
+        isResident ? Promise.resolve([]) : apiRequest('/api/v1/complaints/assignees')
+      ]);
+      setComplaints(complaintRows.map(mapComplaint));
+      setResidents(residentRows);
+      setAssignees(assigneeRows);
+      setError('');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadData(); }, [isResident]);
+
+  const filteredComplaints = complaints.filter(complaint => {
+    const query = searchTerm.trim().toLowerCase();
+    const matchesSearch = !query || [
+      complaint.title, complaint.description, complaint.category,
+      complaint.submittedBy, complaint.flatNumber, complaint.assignedTo
+    ].some(value => value?.toLowerCase().includes(query));
+    return matchesSearch && (selectedFilter === 'all' || complaint.statusKey === selectedFilter);
   });
 
-  // Filter complaints
-  useEffect(() => {
-    let filtered = complaints;
-    
-    if (searchTerm) {
-      filtered = filtered.filter(c =>
-        c.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.submittedBy.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.flatNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.assignedTo?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-    
-    if (selectedFilter !== 'all') {
-      filtered = filtered.filter(c => 
-        c.status.toLowerCase() === selectedFilter.toLowerCase()
-      );
-    }
-    
-    setFilteredComplaints(filtered);
-  }, [searchTerm, selectedFilter, complaints]);
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+  const handleInputChange = event => {
+    const { name, value } = event.target;
+    setFormData(previous => ({ ...previous, [name]: value }));
   };
 
   const handleAddNew = () => {
     setEditingComplaint(null);
-    setFormData({
-      title: '',
-      description: '',
-      category: 'Plumbing',
-      priority: 'Medium',
-      assignedTo: '',
-      status: 'Open',
-      resolutionNotes: '',
-      flatNumber: '',
-      submittedBy: ''
-    });
+    setFormData(emptyForm);
+    setError('');
     setShowModal(true);
   };
 
-  const handleEdit = (complaint) => {
+  const handleEdit = complaint => {
     setEditingComplaint(complaint);
-    setFormData(complaint);
+    setFormData({
+      title: complaint.title,
+      description: complaint.description,
+      category: complaint.category,
+      priority: complaint.priority,
+      residentId: String(complaint.residentId)
+    });
+    setError('');
     setShowModal(true);
   };
 
-  const handleSave = () => {
-    if (editingComplaint) {
-      setComplaints(complaints.map(c => 
-        c.id === editingComplaint.id ? { 
-          ...formData, 
-          id: c.id, 
-          updatedAt: new Date().toLocaleString('en-US', { hour12: false }).replace(',', '')
-        } : c
-      ));
-    } else {
-      const newComplaint = {
-        ...formData,
-        id: complaints.length + 1,
-        createdAt: new Date().toLocaleString('en-US', { hour12: false }).replace(',', ''),
-        updatedAt: new Date().toLocaleString('en-US', { hour12: false }).replace(',', ''),
-        resolvedAt: null,
-        attachments: []
+  const handleSave = async event => {
+    event.preventDefault();
+    const resident = isResident ? null : residents.find(item => item.resident_id === Number(formData.residentId));
+    if (!isResident && !resident) {
+      setError('Choose an active resident. The resident must be linked to a flat.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const payload = {
+        subject: formData.title.trim(),
+        description: formData.description.trim(),
+        category: formData.category,
+        priority: formData.priority.toLowerCase(),
+        ...(!isResident ? { resident_id: resident.resident_id, flat_id: resident.flat_id } : {})
       };
-      setComplaints([...complaints, newComplaint]);
-    }
-    setShowModal(false);
-  };
-
-  const handleDelete = (id) => {
-    if (window.confirm('Are you sure you want to delete this complaint?')) {
-      setComplaints(complaints.filter(c => c.id !== id));
-    }
-  };
-
-  const handleAssign = (id, assignee) => {
-    setComplaints(complaints.map(c => 
-      c.id === id ? { ...c, assignedTo: assignee, status: 'In Progress', updatedAt: new Date().toLocaleString('en-US', { hour12: false }).replace(',', '') } : c
-    ));
-  };
-
-  const handleResolve = (id) => {
-    const notes = prompt('Enter resolution notes:');
-    if (notes !== null) {
-      const now = new Date().toLocaleString('en-US', { hour12: false }).replace(',', '');
-      setComplaints(complaints.map(c => 
-        c.id === id ? { 
-          ...c, 
-          status: 'Resolved', 
-          resolvedAt: now,
-          resolutionNotes: notes,
-          updatedAt: now 
-        } : c
-      ));
+      await apiRequest(
+        editingComplaint ? `/api/v1/complaints/${editingComplaint.id}` : '/api/v1/complaints',
+        apiJson(editingComplaint ? 'PATCH' : 'POST', payload)
+      );
+      await loadData();
+      setShowModal(false);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleClose = (id) => {
-    if (window.confirm('Are you sure you want to close this complaint?')) {
-      setComplaints(complaints.map(c => 
-        c.id === id ? { ...c, status: 'Closed', updatedAt: new Date().toLocaleString('en-US', { hour12: false }).replace(',', '') } : c
-      ));
-    }
+  const handleHistory = async id => {
+    try {
+      const history = await apiRequest(`/api/v1/complaints/${id}/history`);
+      window.alert(history.length ? history.map(item => `${formatDateTime(item.created_at)} — ${item.changed_by_name}: ${titleCase(item.old_status || 'submitted')} → ${titleCase(item.new_status)}${item.note ? `\n${item.note}` : ''}`).join('\n\n') : 'No history available.');
+    } catch (e) { setError(e.message); }
   };
 
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case 'Open':
-        return <span className="status-badge open">● Open</span>;
-      case 'In Progress':
-        return <span className="status-badge in-progress">● In Progress</span>;
-      case 'Resolved':
-        return <span className="status-badge resolved">● Resolved</span>;
-      case 'Closed':
-        return <span className="status-badge closed">● Closed</span>;
-      default:
-        return <span className="status-badge">{status}</span>;
-    }
+  const handleAssign = async id => {
+    if (!assignees.length) { setError('There are no active user accounts to assign this complaint to.'); return; }
+    const choices = assignees.map((assignee, index) => `${index + 1}. ${assignee.full_name} (${titleCase(assignee.role)})`).join('\n');
+    const answer = window.prompt(`Enter the number of the staff member to assign:\n${choices}`);
+    if (answer === null) return;
+    const selected = assignees[Number(answer) - 1];
+    if (!selected) { setError('Enter a number from the assignee list.'); return; }
+    try {
+      await apiRequest(`/api/v1/complaints/${id}/assign`, apiJson('PATCH', { assignee_id: selected.user_id }));
+      await loadData();
+      setError('');
+    } catch (e) { setError(e.message); }
   };
 
-  const getPriorityBadge = (priority) => {
-    switch (priority) {
-      case 'High':
-        return <span className="priority-badge high">High</span>;
-      case 'Medium':
-        return <span className="priority-badge medium">Medium</span>;
-      case 'Low':
-        return <span className="priority-badge low">Low</span>;
-      default:
-        return <span>{priority}</span>;
-    }
+  const handleResolve = async id => {
+    const note = window.prompt('Enter resolution notes:');
+    if (note === null) return;
+    try {
+      await apiRequest(`/api/v1/complaints/${id}/status`, apiJson('PATCH', { status: 'resolved', note }));
+      await loadData();
+      setError('');
+    } catch (e) { setError(e.message); }
   };
 
-  const formatDateTime = (datetime) => {
-    if (!datetime) return '-';
-    const date = new Date(datetime);
-    return date.toLocaleString('en-US', { 
-      month: 'short', 
-      day: '2-digit', 
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
+  const handleClose = async id => {
+    if (!window.confirm('Close this complaint?')) return;
+    try {
+      await apiRequest(`/api/v1/complaints/${id}/status`, apiJson('PATCH', { status: 'closed' }));
+      await loadData();
+      setError('');
+    } catch (e) { setError(e.message); }
   };
+
+  const getStatusBadge = status => {
+    const style = status === 'Open' ? 'open'
+      : status === 'In Progress' ? 'in-progress'
+        : status === 'Resolved' ? 'resolved' : status === 'Closed' ? 'closed'
+          : status === 'Reopened' ? 'reopened' : '';
+    return <span className={`status-badge ${style}`}>{status}</span>;
+  };
+
+  const getPriorityBadge = priority => (
+    <span className={`priority-badge ${priority.toLowerCase()}`}>{priority}</span>
+  );
+
+  const formatDateTime = value => value ? new Date(value).toLocaleString(undefined, {
+    month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+  }) : '-';
 
   return (
     <div className="complaints-container">
-      {/* Header */}
       <div className="complaints-header glass">
         <div className="header-left">
-          <h1>
-            <i className="fas fa-exclamation-triangle"></i> Complaint Management
-          </h1>
+          <h1><i className="fas fa-exclamation-triangle"></i> Complaint Management</h1>
           <span className="total-count">Total Complaints: {filteredComplaints.length}</span>
         </div>
         <div className="header-actions">
@@ -276,7 +199,8 @@ const Complaints = () => {
         </div>
       </div>
 
-      {/* Search and Filter */}
+      {error && <div className="complaints-error" role="alert">{error}</div>}
+
       <div className="search-filter-section glass">
         <div className="search-box">
           <i className="fas fa-search"></i>
@@ -284,269 +208,122 @@ const Complaints = () => {
             type="text"
             placeholder="Search by title, category, resident, flat, or assignee..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={event => setSearchTerm(event.target.value)}
           />
         </div>
         <div className="filter-group">
-          <select 
-            value={selectedFilter} 
-            onChange={(e) => setSelectedFilter(e.target.value)}
-            className="filter-select"
-          >
+          <select value={selectedFilter} onChange={event => setSelectedFilter(event.target.value)} className="filter-select">
             <option value="all">All Status</option>
             <option value="open">Open</option>
-            <option value="in progress">In Progress</option>
+            <option value="assigned">Assigned</option>
+            <option value="in_progress">In Progress</option>
             <option value="resolved">Resolved</option>
             <option value="closed">Closed</option>
+            <option value="reopened">Reopened</option>
           </select>
         </div>
       </div>
 
-      {/* Table */}
       <div className="table-container glass">
         {loading ? (
-          <div className="loading-state">
-            <div className="spinner"></div>
-            <p>Loading complaints...</p>
-          </div>
+          <div className="loading-state"><div className="spinner"></div><p>Loading complaints...</p></div>
         ) : (
           <div className="table-wrapper">
             <table className="complaints-table">
-              <thead>
-                <tr>
-                  <th>COMPLAINT</th>
-                  <th>CATEGORY</th>
-                  <th>PRIORITY</th>
-                  <th>SUBMITTED BY</th>
-                  <th>ASSIGNED TO</th>
-                  <th>STATUS</th>
-                  <th>ACTIONS</th>
-                </tr>
-              </thead>
+              <thead><tr>
+                <th>COMPLAINT</th><th>CATEGORY</th><th>PRIORITY</th><th>SUBMITTED BY</th>
+                <th>ASSIGNED TO</th><th>STATUS</th><th>ACTIONS</th>
+              </tr></thead>
               <tbody>
                 {filteredComplaints.length === 0 ? (
-                  <tr>
-                    <td colSpan="7" className="empty-row">
-                      <i className="fas fa-inbox"></i>
-                      <span>No complaints found</span>
-                    </td>
+                  <tr><td colSpan="7" className="empty-row"><i className="fas fa-inbox"></i><span>No complaints found</span></td></tr>
+                ) : filteredComplaints.map(complaint => (
+                  <tr key={complaint.id}>
+                    <td><div className="complaint-title-cell">
+                      <div className="title">{complaint.title}</div>
+                      <div className="meta"><span>Flat {complaint.flatNumber}</span><span className="dot">·</span><span className="date">{formatDateTime(complaint.createdAt)}</span></div>
+                      {complaint.resolutionNotes && <div className="complaint-resolution-note">Resolution: {complaint.resolutionNotes}</div>}
+                    </div></td>
+                    <td>{complaint.category}</td>
+                    <td>{getPriorityBadge(complaint.priority)}</td>
+                    <td>{complaint.submittedBy}</td>
+                    <td>{complaint.assignedTo || 'Unassigned'}</td>
+                    <td>{getStatusBadge(complaint.status)}</td>
+                    <td><div className="action-buttons">
+                      <button className="action-btn edit" onClick={() => handleHistory(complaint.id)} title="View history"><i className="fas fa-history"></i></button>
+                      {!isResident && <button className="action-btn edit" onClick={() => handleEdit(complaint)} title="Edit"><i className="fas fa-edit"></i></button>}
+                      {!isResident && complaint.statusKey !== 'resolved' && complaint.statusKey !== 'closed' && (
+                        <button className="action-btn assign" onClick={() => handleAssign(complaint.id)} title="Assign"><i className="fas fa-user-plus"></i></button>
+                      )}
+                      {!isResident && (complaint.statusKey === 'open' || complaint.statusKey === 'assigned' || complaint.statusKey === 'in_progress' || complaint.statusKey === 'reopened') && (
+                        <button className="action-btn resolve" onClick={() => handleResolve(complaint.id)} title="Resolve"><i className="fas fa-check"></i></button>
+                      )}
+                      {!isResident && complaint.statusKey === 'resolved' && (
+                        <button className="action-btn close-complaint" onClick={() => handleClose(complaint.id)} title="Close"><i className="fas fa-check-double"></i></button>
+                      )}
+                    </div></td>
                   </tr>
-                ) : (
-                  filteredComplaints.map((complaint) => (
-                    <tr key={complaint.id}>
-                      <td>
-                        <div className="complaint-title-cell">
-                          <div className="title">{complaint.title}</div>
-                          <div className="meta">
-                            <span>Flat {complaint.flatNumber}</span>
-                            <span className="dot">•</span>
-                            <span className="date">{formatDateTime(complaint.createdAt)}</span>
-                          </div>
-                        </div>
-                      </td>
-                      <td>{complaint.category}</td>
-                      <td>{getPriorityBadge(complaint.priority)}</td>
-                      <td>{complaint.submittedBy}</td>
-                      <td>{complaint.assignedTo || 'Unassigned'}</td>
-                      <td>{getStatusBadge(complaint.status)}</td>
-                      <td>
-                        <div className="action-buttons">
-                          <button 
-                            className="action-btn edit"
-                            onClick={() => handleEdit(complaint)}
-                            title="Edit"
-                          >
-                            <i className="fas fa-edit"></i>
-                          </button>
-                          {complaint.status === 'Open' && (
-                            <button 
-                              className="action-btn assign"
-                              onClick={() => {
-                                const assignee = prompt('Enter assignee name:');
-                                if (assignee) handleAssign(complaint.id, assignee);
-                              }}
-                              title="Assign"
-                            >
-                              <i className="fas fa-user-plus"></i>
-                            </button>
-                          )}
-                          {(complaint.status === 'Open' || complaint.status === 'In Progress') && (
-                            <button 
-                              className="action-btn resolve"
-                              onClick={() => handleResolve(complaint.id)}
-                              title="Resolve"
-                            >
-                              <i className="fas fa-check"></i>
-                            </button>
-                          )}
-                          {complaint.status === 'Resolved' && (
-                            <button 
-                              className="action-btn close-complaint"
-                              onClick={() => handleClose(complaint.id)}
-                              title="Close"
-                            >
-                              <i className="fas fa-check-double"></i>
-                            </button>
-                          )}
-                          <button 
-                            className="action-btn delete"
-                            onClick={() => handleDelete(complaint.id)}
-                            title="Delete"
-                          >
-                            <i className="fas fa-trash"></i>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
+                ))}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* Add/Edit Modal */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal glass" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>
-                {editingComplaint ? 'Edit Complaint' : 'Submit New Complaint'}
-              </h2>
-              <button className="modal-close" onClick={() => setShowModal(false)}>
-                <i className="fas fa-times"></i>
-              </button>
-            </div>
-            
-            <div className="modal-body">
-              <div className="form-grid">
-                <div className="form-group full-width">
-                  <label>Title *</label>
-                  <input
-                    type="text"
-                    name="title"
-                    value={formData.title}
-                    onChange={handleInputChange}
-                    placeholder="Brief title of the complaint"
-                    required
-                  />
-                </div>
-
-                <div className="form-group full-width">
-                  <label>Description *</label>
-                  <textarea
-                    name="description"
-                    value={formData.description}
-                    onChange={handleInputChange}
-                    placeholder="Detailed description of the issue"
-                    rows="3"
-                    required
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Category *</label>
-                  <select
-                    name="category"
-                    value={formData.category}
-                    onChange={handleInputChange}
-                    required
-                  >
-                    <option value="Plumbing">Plumbing</option>
-                    <option value="Electrical">Electrical</option>
-                    <option value="Cleaning">Cleaning</option>
-                    <option value="Security">Security</option>
-                    <option value="Noise">Noise</option>
-                    <option value="Maintenance">Maintenance</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label>Priority *</label>
-                  <select
-                    name="priority"
-                    value={formData.priority}
-                    onChange={handleInputChange}
-                    required
-                  >
-                    <option value="High">High</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Low">Low</option>
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label>Submitted By (Resident) *</label>
-                  <input
-                    type="text"
-                    name="submittedBy"
-                    value={formData.submittedBy}
-                    onChange={handleInputChange}
-                    placeholder="Resident name"
-                    required
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Flat Number *</label>
-                  <input
-                    type="text"
-                    name="flatNumber"
-                    value={formData.flatNumber}
-                    onChange={handleInputChange}
-                    placeholder="e.g., A-101"
-                    required
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Assign To</label>
-                  <input
-                    type="text"
-                    name="assignedTo"
-                    value={formData.assignedTo || ''}
-                    onChange={handleInputChange}
-                    placeholder="Staff name"
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Status</label>
-                  <select
-                    name="status"
-                    value={formData.status}
-                    onChange={handleInputChange}
-                  >
-                    <option value="Open">Open</option>
-                    <option value="In Progress">In Progress</option>
-                    <option value="Resolved">Resolved</option>
-                    <option value="Closed">Closed</option>
-                  </select>
-                </div>
-
-                <div className="form-group full-width">
-                  <label>Resolution Notes</label>
-                  <textarea
-                    name="resolutionNotes"
-                    value={formData.resolutionNotes || ''}
-                    onChange={handleInputChange}
-                    placeholder="Add resolution details if resolved"
-                    rows="2"
-                  />
+          <div className="modal glass" onClick={event => event.stopPropagation()}>
+            <form onSubmit={handleSave}>
+              <div className="modal-header">
+                <h2>{editingComplaint ? 'Edit Complaint' : 'Submit New Complaint'}</h2>
+                <button type="button" className="modal-close" onClick={() => setShowModal(false)}><i className="fas fa-times"></i></button>
+              </div>
+              <div className="modal-body">
+                {error && <div className="complaints-error" role="alert">{error}</div>}
+                <div className="form-grid">
+                  {!isResident && <div className="form-group full-width">
+                    <label>Title *</label>
+                    <input name="title" value={formData.title} onChange={handleInputChange} placeholder="Brief title of the complaint" required maxLength="255" />
+                  </div>}
+                  <div className="form-group full-width">
+                    <label>Description</label>
+                    <textarea name="description" value={formData.description} onChange={handleInputChange} placeholder="Describe the issue" rows="3" />
+                  </div>
+                  <div className="form-group">
+                    <label>Category</label>
+                    <select name="category" value={formData.category} onChange={handleInputChange}>
+                      <option>Plumbing</option><option>Electrical</option><option>Cleaning</option>
+                      <option>Security</option><option>Noise</option><option>Maintenance</option><option>Other</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Priority *</label>
+                    <select name="priority" value={formData.priority} onChange={handleInputChange} required>
+                      <option value="Low">Low</option><option value="Medium">Medium</option>
+                      <option value="High">High</option><option value="Urgent">Urgent</option>
+                    </select>
+                  </div>
+                  <div className="form-group full-width">
+                    <label>Resident *</label>
+                    <select name="residentId" value={formData.residentId} onChange={handleInputChange} required>
+                      <option value="">Select a resident</option>
+                      {residents.map(resident => (
+                        <option key={resident.resident_id} value={resident.resident_id}>
+                          {resident.full_name} - {resident.flat_number} ({resident.block_name})
+                        </option>
+                      ))}
+                    </select>
+                    {!residents.length && <small>Add an active resident before submitting a complaint.</small>}
+                  </div>
                 </div>
               </div>
-            </div>
-
-            <div className="modal-footer">
-              <button className="btn-secondary" onClick={() => setShowModal(false)}>
-                Cancel
-              </button>
-              <button className="btn-primary" onClick={handleSave}>
-                {editingComplaint ? 'Update Complaint' : 'Submit Complaint'}
-              </button>
-            </div>
+              <div className="modal-footer">
+                <button type="button" className="btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
+                <button type="submit" className="btn-primary" disabled={saving || !residents.length}>
+                  {saving ? 'Saving...' : editingComplaint ? 'Update Complaint' : 'Submit Complaint'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

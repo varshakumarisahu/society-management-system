@@ -23,8 +23,8 @@ def login(
     """
     with db.cursor() as cursor:
         cursor.execute(
-            "SELECT user_id, password_hash, status FROM users WHERE username = %s",
-            (body.username,),
+            "SELECT user_id, password_hash, status FROM users WHERE username = %s OR email = %s",
+            (body.username, body.username),
         )
         user = cursor.fetchone()
 

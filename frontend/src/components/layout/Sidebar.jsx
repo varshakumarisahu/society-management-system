@@ -7,10 +7,10 @@ const ALL_MENU_ITEMS = [
   { path: '/residents', icon: 'fa-users', label: 'Residents' },
   { path: '/flats', icon: 'fa-building', label: 'Flats' },
   { path: '/visitors', icon: 'fa-user-friends', label: 'Visitors' },
-  { path: '/complaints', icon: 'fa-exclamation-triangle', label: 'Complaints' },
-  { path: '/notices', icon: 'fa-bullhorn', label: 'Notice Board' },
-   { path: '/maintenance', icon: 'fa-tools', label: 'Maintenance' },
-  //{ path: '/settings', icon: 'fa-cog', label: 'Settings' },
+  { path: '/complaints', icon: 'fa-exclamation-triangle', label: 'Complaints', permission: 'submit_complaints' },
+  { path: '/notices', icon: 'fa-bullhorn', label: 'Notice Board', permission: 'view_notices' },
+  { path: '/maintenance', icon: 'fa-tools', label: 'Maintenance', permission: 'view_maintenance' },
+  { path: '/settings', icon: 'fa-cog', label: 'Settings', permission: 'manage_settings' },
 ];
 
 const Sidebar = ({
