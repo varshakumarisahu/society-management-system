@@ -1,122 +1,122 @@
 # Society Management System
 
-A web application for managing a residential society. The frontend is built with React and Vite, the API uses FastAPI, and PostgreSQL stores application data.
+A web application for managing residents, flats, visitors, complaints, notices, maintenance bills, and society notifications.
+
+## Tech stack
+
+- **Frontend:** React 19, Vite 8, React Router, Tailwind CSS 4
+- **Backend:** FastAPI, Python, Pydantic
+- **Database:** PostgreSQL 15
+- **Local services:** Docker Compose
 
 ## Features
 
-- **Authentication:** login with bearer-token authentication, user roles, profile lookup, and password change.
-- **Blocks and flats:** maintain blocks and flat records, occupancy, owners, and resident associations.
-- **Residents:** add, update, search, deactivate, and remove resident records. Administrators can create a resident login from the resident record; resident login status follows the resident's active status.
-- **Visitors:** register visitors, record check-in and check-out, and deny entry.
-- **Complaints:** submit, assign, update status, resolve, close, and view complaint history.
-- **Notice Board:** administrators can create, edit, and delete notices; residents can view active notices; expired notices are archived when notices are fetched.
-- **Maintenance:** generate bills for one or all flats, view bill and payment status, record manual full or partial payments, view payment history, and see pending dues.
-- **Notifications:** in-app alerts for new notices, complaint assignment/status changes, and generated maintenance bills. Administrators can broadcast system announcements. Users can filter, read, and delete their own notifications.
-- **Settings:** administrators can update society details, notification behavior, daily visitor limits, complaint auto-assignment, and saved preferences. Application roles are shown as fixed because their permissions are defined by the app.
-- **Dashboard:** live counts for residents, flats, visitors, complaints, maintenance dues, and recent notifications.
+- Sign in with bearer-token authentication, role-based access, profile lookup, and password changes.
+- Manage blocks, flats, resident records, and resident login accounts.
+- Register visitors, record check-in and check-out, and deny entry.
+- Submit and manage complaints, assignments, statuses, and complaint history.
+- Create and manage society notices, with active notices available to residents.
+- Generate maintenance bills, record full or partial payments, and review payment history and dues.
+- Send in-app notifications for notices, complaint updates, bills, and administrator announcements.
+- Configure society details, system behavior, and saved user preferences.
+- View dashboard counts and recent activity.
 
 ## Requirements
 
 - Docker Desktop with Docker Compose
-- Node.js and npm (use a version supported by the Vite version in frontend/package.json)
+- Node.js and npm compatible with the Vite version in `frontend/package.json`
+- Python 3.10 or later only if running the backend outside Docker
 
 ## Configuration
 
-The backend reads database and signing-key settings from backend/.env. Create that file with values for your environment. For Docker Compose, use the database service name and internal port:
+Create `backend/.env` before starting the backend:
 
-~~~dotenv
+```dotenv
 DATABASE_NAME=society_db
 DATABASE_USERNAME=postgres
 DATABASE_PASSWORD=change-this-database-password
 DATABASE_HOST=society_db
 DATABASE_PORT=5432
 SECRET_KEY=replace-this-with-a-long-random-secret
-~~~
+```
 
-The Compose file exposes PostgreSQL on host port 5434 and the API on port 8080. If you run the API directly on your computer instead of in Docker, point DATABASE_HOST to localhost and DATABASE_PORT to 5434.
+Docker Compose publishes PostgreSQL on host port `5434` and the API on port `8080`. When running the backend directly on your computer, use `DATABASE_HOST=localhost` and `DATABASE_PORT=5434`.
 
-The frontend uses http://localhost:8080 by default. To use another API URL, create frontend/.env and set:
+The frontend defaults to `http://localhost:8080` for API requests. To use a different API URL, create `frontend/.env`:
 
-~~~dotenv
+```dotenv
 VITE_API_URL=http://localhost:8080
-~~~
+```
 
-Do not commit real passwords or signing keys.
+Keep real passwords and signing keys out of source control.
 
 ## Run locally
 
-### 1. Start the API and database
+### Start the backend and database
 
-From the project root:
+From the repository root:
 
-~~~powershell
+```powershell
 cd backend
 docker compose up -d --build
-~~~
+```
 
-The database initializes from backend/init_db.sql the first time its Docker volume is created. The seed admin account is:
+On the first startup, PostgreSQL initializes from `backend/init_db.sql`. The seeded local administrator is:
 
-- Username: admin (email: admin@society.com)
-- Password: password123
+- Username: `admin` (email: `admin@society.com`)
+- Password: `password123`
 
-Change the seeded password before using this application outside local development.
+Change this password before using the application outside local development. The API is available at <http://localhost:8080/> and its interactive documentation is at <http://localhost:8080/docs>.
 
-The API root is http://localhost:8080/ and interactive API documentation is at http://localhost:8080/docs.
+### Start the frontend
 
-### 2. Start the frontend
+In a second terminal, from the repository root:
 
-In another terminal, from the project root:
-
-~~~powershell
+```powershell
 cd frontend
 npm install
 npm run dev
-~~~
+```
 
-Open http://localhost:5173 and sign in. Vite serves the UI locally and sends API requests to the configured API URL.
-
-To stop the backend services, run docker compose down from backend. This keeps the database volume and its data.
+Open <http://localhost:5173> and sign in. To stop the backend services, run `docker compose down` from `backend`. This keeps the database volume and its data. To also remove the local database volume and its data, run `docker compose down -v` from `backend`.
 
 ## API overview
 
-Sign in at POST /api/v1/auth/login. Protected API endpoints accept the returned token in the Authorization: Bearer <token> header. Check /docs for endpoint-specific authentication and role requirements.
+Protected endpoints use the access token returned by `POST /api/v1/auth/login` in an `Authorization: Bearer <token>` header. The interactive API documentation lists request schemas and role requirements.
 
 | Module | Base path |
 | --- | --- |
-| Authentication | /api/v1/auth |
-| Blocks | /api/v1/blocks |
-| Flats | /api/v1/flats |
-| Residents | /residents |
-| Visitors | /visitors |
-| Complaints | /api/v1/complaints |
-| Notice Board | /api/v1/notices |
-| Maintenance bills and payments | /api/v1/maintenance |
-| Notifications | /api/v1/notifications |
+| Authentication | `/api/v1/auth` |
+| Blocks | `/api/v1/blocks` |
+| Flats | `/api/v1/flats` |
+| Residents | `/residents` |
+| Visitors | `/visitors` |
+| Complaints | `/api/v1/complaints` |
+| Notices | `/api/v1/notices` |
+| Maintenance and payments | `/api/v1/maintenance` |
+| Notifications | `/api/v1/notifications` |
+| Settings | `/api/v1/settings` |
 
-See /docs for request schemas, role restrictions, and the complete endpoint list.
+Administrators can create a resident login from a resident record using that resident's email address, a unique username, and a temporary password of at least eight characters. The administrator must share the temporary password with the resident. Resident-specific complaints, bills, and notifications require the account to be linked to an active resident record; bill notifications also require a link to the billed flat.
 
-Administrators can provision a resident login from the Residents page using the resident's existing email address, a unique username, and a temporary password of at least 8 characters. They must share that password with the resident directly. Linked residents can then sign in and use resident-scoped complaints, maintenance bills, and notifications.
+## Development checks
+
+Run these from `frontend`:
+
+```powershell
+npm run build
+npm run lint
+```
+
+Run this from the repository root to compile-check the Python backend:
+
+```powershell
+python -m compileall -q backend/server
+```
 
 ## Current limitations
 
-- Saved theme, language, date-format, and timezone preferences are stored, but the current screens do not yet apply them globally.
-- Resident and visitor management endpoints require an authenticated role; the visitor host lookup gives security staff only the active resident/flat fields needed to register a visitor.
+- Saved theme, language, date-format, and timezone preferences are stored but are not yet applied across the interface.
 - Notifications are in-app only; email, SMS, and push delivery are not configured.
-- Maintenance payments are entered manually; no payment gateway is integrated.
-- Resident-specific complaint, bill, and event notifications require the resident user account to be linked to an active resident record. Bill notifications also require the account to be linked to the billed flat.
-- A new local database starts with no bills, notices, or notifications. These records appear as administrators create them and module events occur.
-
-## Useful development checks
-
-From the frontend directory:
-
-~~~powershell
-npm run build
-npm run lint
-~~~
-
-From the project root:
-
-~~~powershell
-python -m compileall -q backend/server
-~~~
+- Maintenance payments are recorded manually; no payment gateway is integrated.
+- A fresh local database has no bills, notices, or notifications until administrators create them or related application events occur.
