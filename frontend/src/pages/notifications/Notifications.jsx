@@ -1,148 +1,113 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { apiJson, apiRequest } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import './Notifications.css';
 
-// Mock Data
-const MOCK_NOTIFICATIONS = [
-  {
-    id: 1,
-    type: 'notice',
-    title: 'New Notice: AGM Meeting',
-    message: 'The Annual General Meeting has been scheduled for August 5, 2026.',
-    read: false,
-    createdAt: '2026-07-20 10:30:00',
-    link: '/notices'
-  },
-  {
-    id: 2,
-    type: 'complaint',
-    title: 'Complaint Status Updated',
-    message: 'Your complaint #3 (Lift Malfunction) has been assigned to Ramesh Singh.',
-    read: false,
-    createdAt: '2026-07-20 09:15:00',
-    link: '/complaints'
-  },
-  {
-    id: 3,
-    type: 'maintenance',
-    title: 'Maintenance Bill Generated',
-    message: 'Your maintenance bill for July 2026 (₹2,500) is due on July 15, 2026.',
-    read: false,
-    createdAt: '2026-07-19 16:45:00',
-    link: '/maintenance'
-  },
-  {
-    id: 4,
-    type: 'system',
-    title: 'System Maintenance',
-    message: 'The system will be down for maintenance on July 25, 2026 from 2:00 AM to 5:00 AM.',
-    read: true,
-    createdAt: '2026-07-18 08:00:00',
-    link: null
-  },
-  {
-    id: 5,
-    type: 'notice',
-    title: 'New Notice: Water Supply Maintenance',
-    message: 'Water supply will be suspended on July 25, 2026 from 9:00 AM to 5:00 PM.',
-    read: true,
-    createdAt: '2026-07-17 14:20:00',
-    link: '/notices'
-  },
-  {
-    id: 6,
-    type: 'complaint',
-    title: 'Complaint Resolved',
-    message: 'Your complaint #1 (Water Leakage) has been resolved. Please verify and close.',
-    read: false,
-    createdAt: '2026-07-16 11:00:00',
-    link: '/complaints'
-  },
-  {
-    id: 7,
-    type: 'maintenance',
-    title: 'Maintenance Payment Received',
-    message: 'We have received your maintenance payment of ₹2,500 for June 2026. Thank you!',
-    read: true,
-    createdAt: '2026-07-05 10:30:00',
-    link: '/maintenance'
-  }
-];
-
-const Notifications = () => {
-  const [notifications, setNotifications] = useState(MOCK_NOTIFICATIONS);
-  const [filteredNotifications, setFilteredNotifications] = useState(MOCK_NOTIFICATIONS);
-  const [loading, setLoading] = useState(false);
+const NotificationPage = () => {
+  const { user } = useAuth();
+  const canAnnounce = user?.role === 'admin';
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterRead, setFilterRead] = useState('all');
+  const [showAnnouncement, setShowAnnouncement] = useState(false);
+  const [announcement, setAnnouncement] = useState({ title: '', message: '' });
+  const [saving, setSaving] = useState(false);
 
-  // Filter notifications
-  useEffect(() => {
-    let filtered = notifications;
-    
-    if (filterType !== 'all') {
-      filtered = filtered.filter(n => n.type === filterType);
-    }
-    
-    if (filterRead === 'unread') {
-      filtered = filtered.filter(n => !n.read);
-    } else if (filterRead === 'read') {
-      filtered = filtered.filter(n => n.read);
-    }
-    
-    setFilteredNotifications(filtered);
-  }, [filterType, filterRead, notifications]);
+  const loadNotifications = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [rows, count] = await Promise.all([
+        apiRequest('/api/v1/notifications?limit=200'),
+        apiRequest('/api/v1/notifications/unread-count')
+      ]);
+      setNotifications(rows.map(row => ({
+        id: row.notification_id,
+        type: row.type,
+        title: row.title,
+        message: row.message || '',
+        referenceId: row.reference_id,
+        read: row.is_read,
+        createdAt: row.created_at
+      })));
+      setUnreadCount(count.count);
+      setError('');
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, []);
 
-  // Mark as read
-  const markAsRead = (id) => {
-    setNotifications(notifications.map(n => 
-      n.id === id ? { ...n, read: true } : n
-    ));
+  useEffect(() => { loadNotifications(); }, [loadNotifications]);
+
+  const filteredNotifications = useMemo(() => notifications.filter(item => (
+    (filterType === 'all' || item.type === filterType)
+      && (filterRead === 'all' || (filterRead === 'unread' ? !item.read : item.read))
+  )), [notifications, filterRead, filterType]);
+
+  const markAsRead = async id => {
+    try {
+      await apiRequest(`/api/v1/notifications/${id}/read`, { method: 'PATCH' });
+      setNotifications(items => items.map(item => item.id === id ? { ...item, read: true } : item));
+      setUnreadCount(count => Math.max(0, count - 1));
+    } catch (e) { setError(e.message); }
   };
 
-  // Mark all as read
-  const markAllAsRead = () => {
-    if (window.confirm('Mark all notifications as read?')) {
-      setNotifications(notifications.map(n => ({ ...n, read: true })));
-    }
+  const markAllAsRead = async () => {
+    try { await apiRequest('/api/v1/notifications/read-all', { method: 'PATCH' }); await loadNotifications(); }
+    catch (e) { setError(e.message); }
   };
 
-  // Delete notification
-  const deleteNotification = (id) => {
-    if (window.confirm('Delete this notification?')) {
-      setNotifications(notifications.filter(n => n.id !== id));
-    }
+  const deleteNotification = async id => {
+    try {
+      await apiRequest(`/api/v1/notifications/${id}`, { method: 'DELETE' });
+      setNotifications(items => items.filter(item => item.id !== id));
+      await loadUnreadCount();
+    } catch (e) { setError(e.message); }
   };
 
-  // Clear all read notifications
-  const clearRead = () => {
-    if (window.confirm('Delete all read notifications?')) {
-      setNotifications(notifications.filter(n => !n.read));
-    }
+  const loadUnreadCount = async () => {
+    try { const result = await apiRequest('/api/v1/notifications/unread-count'); setUnreadCount(result.count); }
+    catch (e) { setError(e.message); }
   };
 
-  // Get unread count
-  const unreadCount = notifications.filter(n => !n.read).length;
-
-  // Get icon and color for notification type
-  const getTypeInfo = (type) => {
-    const types = {
-      notice: { icon: 'fa-bullhorn', color: '#6366f1', label: 'Notice' },
-      complaint: { icon: 'fa-exclamation-triangle', color: '#ef4444', label: 'Complaint' },
-      maintenance: { icon: 'fa-tools', color: '#f59e0b', label: 'Maintenance' },
-      system: { icon: 'fa-server', color: '#3b82f6', label: 'System' }
-    };
-    return types[type] || types.system;
+  const clearRead = async () => {
+    try { await apiRequest('/api/v1/notifications/read', { method: 'DELETE' }); await loadNotifications(); }
+    catch (e) { setError(e.message); }
   };
 
-  const formatDateTime = (datetime) => {
-    if (!datetime) return '-';
-    const date = new Date(datetime);
-    const now = new Date();
-    const diff = now - date;
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-    
+  const sendAnnouncement = async event => {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      const result = await apiRequest('/api/v1/notifications/announcements', apiJson('POST', {
+        title: announcement.title.trim(), message: announcement.message.trim()
+      }));
+      setShowAnnouncement(false);
+      setAnnouncement({ title: '', message: '' });
+      setSuccess(`Announcement sent to ${result.sent} active user(s).`);
+      await loadNotifications();
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const typeInfo = type => ({
+    notice: { icon: 'fa-bullhorn', color: '#6366f1', label: 'Notice', link: '/notices' },
+    complaint: { icon: 'fa-exclamation-triangle', color: '#ef4444', label: 'Complaint', link: '/complaints' },
+    maintenance: { icon: 'fa-tools', color: '#f59e0b', label: 'Maintenance', link: '/maintenance' },
+    visitor: { icon: 'fa-user-friends', color: '#3b82f6', label: 'Visitor', link: '/visitors' },
+    system: { icon: 'fa-bullhorn', color: '#0ea5e9', label: 'System', link: null }
+  }[type] || { icon: 'fa-bell', color: '#64748b', label: 'Notification', link: null });
+
+  const formatDateTime = value => {
+    const date = new Date(value);
+    const elapsed = Date.now() - date.getTime();
+    const minutes = Math.floor(elapsed / 60000);
+    const hours = Math.floor(elapsed / 3600000);
+    const days = Math.floor(elapsed / 86400000);
     if (minutes < 1) return 'Just now';
     if (minutes < 60) return `${minutes}m ago`;
     if (hours < 24) return `${hours}h ago`;
@@ -152,122 +117,59 @@ const Notifications = () => {
 
   return (
     <div className="notifications-container">
-      {/* Header */}
       <div className="notifications-header glass">
-        <div className="header-left">
-          <h1>
-            <i className="fas fa-bell"></i> Notifications
-          </h1>
-          <span className="unread-badge">
-            {unreadCount} Unread
-          </span>
-        </div>
+        <div className="header-left"><h1><i className="fas fa-bell"></i> Notifications</h1><span className="unread-badge">{unreadCount} Unread</span></div>
         <div className="header-actions">
-          {unreadCount > 0 && (
-            <button className="btn-secondary" onClick={markAllAsRead}>
-              <i className="fas fa-check-double"></i> Mark All Read
-            </button>
-          )}
-          <button className="btn-secondary" onClick={clearRead}>
-            <i className="fas fa-trash-alt"></i> Clear Read
-          </button>
+          {canAnnounce && <button className="btn-primary" onClick={() => setShowAnnouncement(true)}><i className="fas fa-bullhorn"></i> New Announcement</button>}
+          {unreadCount > 0 && <button className="btn-secondary" onClick={markAllAsRead}><i className="fas fa-check-double"></i> Mark All Read</button>}
+          {notifications.some(item => item.read) && <button className="btn-secondary" onClick={clearRead}><i className="fas fa-trash-alt"></i> Clear Read</button>}
         </div>
       </div>
 
-      {/* Filters */}
+      {error && <div className="notifications-message" role="alert">{error}</div>}
+      {success && <div className="notifications-success" role="status">{success}</div>}
+
       <div className="filters-section glass">
-        <div className="filter-group">
-          <label>Type:</label>
-          <select 
-            value={filterType} 
-            onChange={(e) => setFilterType(e.target.value)}
-            className="filter-select"
-          >
-            <option value="all">All Types</option>
-            <option value="notice">Notices</option>
-            <option value="complaint">Complaints</option>
-            <option value="maintenance">Maintenance</option>
-            <option value="system">System</option>
-          </select>
-        </div>
-        <div className="filter-group">
-          <label>Status:</label>
-          <select 
-            value={filterRead} 
-            onChange={(e) => setFilterRead(e.target.value)}
-            className="filter-select"
-          >
-            <option value="all">All</option>
-            <option value="unread">Unread</option>
-            <option value="read">Read</option>
-          </select>
-        </div>
+        <div className="filter-group"><label>Type:</label><select value={filterType} onChange={event => setFilterType(event.target.value)} className="filter-select">
+          <option value="all">All Types</option><option value="notice">Notices</option><option value="complaint">Complaints</option><option value="maintenance">Maintenance</option><option value="system">System</option>
+        </select></div>
+        <div className="filter-group"><label>Status:</label><select value={filterRead} onChange={event => setFilterRead(event.target.value)} className="filter-select">
+          <option value="all">All</option><option value="unread">Unread</option><option value="read">Read</option>
+        </select></div>
       </div>
 
-      {/* Notification List */}
       <div className="notifications-list">
-        {loading ? (
-          <div className="loading-state">
-            <div className="spinner"></div>
-            <p>Loading notifications...</p>
-          </div>
-        ) : filteredNotifications.length === 0 ? (
-          <div className="empty-state glass">
-            <i className="fas fa-bell-slash"></i>
-            <h3>No Notifications</h3>
-            <p>You're all caught up!</p>
-          </div>
-        ) : (
-          filteredNotifications.map((notification) => {
-            const typeInfo = getTypeInfo(notification.type);
-            return (
-              <div 
-                key={notification.id} 
-                className={`notification-item glass ${!notification.read ? 'unread' : ''}`}
-              >
-                <div className="notification-icon" style={{ background: `${typeInfo.color}15`, color: typeInfo.color }}>
-                  <i className={`fas ${typeInfo.icon}`}></i>
-                </div>
+        {loading ? <div className="loading-state"><div className="spinner"></div><p>Loading notifications...</p></div>
+          : filteredNotifications.length === 0 ? <div className="empty-state glass"><i className="fas fa-bell-slash"></i><h3>No Notifications</h3><p>You're all caught up!</p></div>
+            : filteredNotifications.map(item => {
+              const type = typeInfo(item.type);
+              return <div key={item.id} className={`notification-item glass ${!item.read ? 'unread' : ''}`}>
+                <div className="notification-icon" style={{ background: `${type.color}15`, color: type.color }}><i className={`fas ${type.icon}`}></i></div>
                 <div className="notification-content">
-                  <div className="notification-header">
-                    <div className="notification-title">
-                      <span className="type-badge" style={{ background: `${typeInfo.color}15`, color: typeInfo.color }}>
-                        {typeInfo.label}
-                      </span>
-                      <strong>{notification.title}</strong>
-                    </div>
-                    <span className="notification-time">{formatDateTime(notification.createdAt)}</span>
-                  </div>
-                  <p className="notification-message">{notification.message}</p>
+                  <div className="notification-header"><div className="notification-title"><span className="type-badge" style={{ background: `${type.color}15`, color: type.color }}>{type.label}</span><strong>{item.title}</strong></div><span className="notification-time">{formatDateTime(item.createdAt)}</span></div>
+                  <p className="notification-message">{item.message}</p>
                   <div className="notification-actions">
-                    {!notification.read && (
-                      <button 
-                        className="action-btn mark-read"
-                        onClick={() => markAsRead(notification.id)}
-                      >
-                        <i className="fas fa-check"></i> Mark as Read
-                      </button>
-                    )}
-                    {notification.link && (
-                      <a href={notification.link} className="action-btn view-link">
-                        <i className="fas fa-eye"></i> View
-                      </a>
-                    )}
-                    <button 
-                      className="action-btn delete"
-                      onClick={() => deleteNotification(notification.id)}
-                    >
-                      <i className="fas fa-trash"></i>
-                    </button>
+                    {!item.read && <button className="action-btn mark-read" onClick={() => markAsRead(item.id)}><i className="fas fa-check"></i> Mark as Read</button>}
+                    {type.link && <Link to={type.link} className="action-btn view-link" onClick={() => !item.read && markAsRead(item.id)}><i className="fas fa-eye"></i> View</Link>}
+                    <button className="action-btn delete" onClick={() => deleteNotification(item.id)} title="Delete notification"><i className="fas fa-trash"></i></button>
                   </div>
                 </div>
-              </div>
-            );
-          })
-        )}
+              </div>;
+            })}
       </div>
+
+      {showAnnouncement && <div className="modal-overlay" onClick={() => !saving && setShowAnnouncement(false)}><div className="modal glass" onClick={event => event.stopPropagation()}>
+        <form onSubmit={sendAnnouncement}><div className="modal-header"><h2>Send System Announcement</h2><button type="button" className="modal-close" onClick={() => setShowAnnouncement(false)}><i className="fas fa-times"></i></button></div>
+          <div className="modal-body">{error && <div className="notifications-message">{error}</div>}<div className="form-grid">
+            <div className="form-group full-width"><label>Title *</label><input value={announcement.title} onChange={event => setAnnouncement({ ...announcement, title: event.target.value })} maxLength="255" required /></div>
+            <div className="form-group full-width"><label>Announcement *</label><textarea value={announcement.message} onChange={event => setAnnouncement({ ...announcement, message: event.target.value })} rows="5" required /></div>
+            <small className="full-width">This will notify all active user accounts.</small>
+          </div></div>
+          <div className="modal-footer"><button type="button" className="btn-secondary" onClick={() => setShowAnnouncement(false)}>Cancel</button><button className="btn-primary" type="submit" disabled={saving}>{saving ? 'Sending...' : 'Send Announcement'}</button></div>
+        </form>
+      </div></div>}
     </div>
   );
 };
 
-export default Notifications;
+export default NotificationPage;

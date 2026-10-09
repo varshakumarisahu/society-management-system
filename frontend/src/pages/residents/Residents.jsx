@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { apiRequest, apiJson } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import './Residents.css';
 
 // Mock Data
@@ -84,17 +86,24 @@ const MOCK_RESIDENTS = [
 ];
 
 const Residents = () => {
-  const [residents, setResidents] = useState(MOCK_RESIDENTS);
-  const [filteredResidents, setFilteredResidents] = useState(MOCK_RESIDENTS);
-  const [loading, setLoading] = useState(false);
+  const [residents, setResidents] = useState([]);
+  const [filteredResidents, setFilteredResidents] = useState([]);
+  const [flats, setFlats] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [editingResident, setEditingResident] = useState(null);
+  const [accountResident, setAccountResident] = useState(null);
+  const [accountForm, setAccountForm] = useState({ username: '', password: '' });
+  const [savingAccount, setSavingAccount] = useState(false);
+  const { user } = useAuth();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     phone: '',
+    flatId: '',
     flatNumber: '',
     block: 'A',
     role: 'Owner',
@@ -103,6 +112,29 @@ const Residents = () => {
     occupation: '',
     familyMembers: 1
   });
+
+  const loadResidents = async () => {
+    setLoading(true);
+    try {
+      const [rows, flatResult] = await Promise.all([
+        apiRequest('/residents/'), apiRequest('/api/v1/flats')
+      ]);
+      setFlats(flatResult.items);
+      setResidents(rows.map(r => ({
+        id: r.resident_id, userId: r.user_id, name: r.full_name, email: r.email || '', phone: r.phone || '',
+        flat_id: r.flat_id, flatId: r.flat_id, flatNumber: r.flat_number || '',
+        block: (r.block_name || '').replace(/^Block\s+/i, ''),
+        role: r.resident_type.replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase()),
+        status: r.status === 'active' ? 'Active' : r.status === 'inactive' ? 'Inactive' : 'Moved Out',
+        joinDate: r.move_in_date || '', occupation: r.occupation || '',
+        familyMembers: r.family_members_count || 1,
+        emergencyContact: r.emergency_contact_phone || '', emergency_contact_name: r.emergency_contact_name || ''
+      })));
+      setError('');
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { loadResidents(); }, []);
 
   // Filter residents
   useEffect(() => {
@@ -128,6 +160,16 @@ const Residents = () => {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+    if (name === 'flatId') {
+      const flat = flats.find(item => item.flat_id === Number(value));
+      setFormData(prev => ({
+        ...prev,
+        flatId: value,
+        flatNumber: flat?.flat_number || '',
+        block: flat ? flat.block_name.replace(/^Block\s+/i, '') : ''
+      }));
+      return;
+    }
     setFormData(prev => ({
       ...prev,
       [name]: value
@@ -140,6 +182,7 @@ const Residents = () => {
       name: '',
       email: '',
       phone: '',
+      flatId: '',
       flatNumber: '',
       block: 'A',
       role: 'Owner',
@@ -157,32 +200,51 @@ const Residents = () => {
     setShowModal(true);
   };
 
-  const handleSave = () => {
-    if (editingResident) {
-      setResidents(residents.map(r => 
-        r.id === editingResident.id ? { ...formData, id: r.id } : r
-      ));
-    } else {
-      const newResident = {
-        ...formData,
-        id: residents.length + 1,
-        joinDate: new Date().toISOString().split('T')[0]
-      };
-      setResidents([...residents, newResident]);
-    }
-    setShowModal(false);
+  const handleSave = async () => {
+    const flat = flats.find(f => f.flat_id === Number(formData.flatId)) || flats.find(f =>
+      f.flat_number.toLowerCase() === formData.flatNumber.trim().toLowerCase() ||
+      `${f.block_name.replace(/^Block\s+/i, '')}-${f.flat_number}`.toLowerCase() === formData.flatNumber.trim().toLowerCase()
+    ) || flats.find(f => f.flat_id === editingResident?.flat_id);
+    if (!flat) { setError('Choose a flat that exists in the Flats page.'); return; }
+    const payload = {
+      full_name: formData.name, email: formData.email || null, phone: formData.phone,
+      flat_id: flat.flat_id, resident_type: formData.role.toLowerCase().replaceAll(' ', '_'),
+      status: (formData.status === 'Active' ? 'active' : formData.status === 'Inactive' ? 'inactive' : 'moved_out'),
+      occupation: formData.occupation || null, family_members_count: Number(formData.familyMembers) || 0,
+      emergency_contact_name: formData.emergency_contact_name || null,
+      emergency_contact_phone: formData.emergencyContact || null
+    };
+    try {
+      await apiRequest(editingResident ? `/residents/${editingResident.id}` : '/residents/',
+        apiJson(editingResident ? 'PATCH' : 'POST', payload));
+      await loadResidents(); setShowModal(false); setError('');
+    } catch (e) { setError(e.message); }
   };
 
   const handleDelete = (id) => {
     if (window.confirm('Are you sure you want to delete this resident?')) {
-      setResidents(residents.filter(r => r.id !== id));
+      apiRequest(`/residents/${id}`, { method: 'DELETE' }).then(loadResidents).catch(e => setError(e.message));
     }
   };
 
   const handleToggleStatus = (id) => {
-    setResidents(residents.map(r => 
-      r.id === id ? { ...r, status: r.status === 'Active' ? 'Inactive' : 'Active' } : r
-    ));
+    const resident = residents.find(r => r.id === id);
+    const req = resident.status === 'Active'
+      ? apiRequest(`/residents/${id}/deactivate`, { method: 'PATCH' })
+      : apiRequest(`/residents/${id}`, apiJson('PATCH', { status: 'active' }));
+    req.then(loadResidents).catch(e => setError(e.message));
+  };
+
+  const createLogin = async (event) => {
+    event.preventDefault();
+    setSavingAccount(true);
+    try {
+      await apiRequest(`/residents/${accountResident.id}/account`, apiJson('POST', accountForm));
+      setAccountResident(null);
+      setAccountForm({ username: '', password: '' });
+      await loadResidents();
+    } catch (e) { setError(e.message); }
+    finally { setSavingAccount(false); }
   };
 
   const getStatusBadge = (status) => {
@@ -207,6 +269,7 @@ const Residents = () => {
           </button>
         </div>
       </div>
+      {error && <div role="alert" className="error-message">{error}</div>}
 
       {/* Search and Filter */}
       <div className="search-filter-section glass">
@@ -297,6 +360,15 @@ const Residents = () => {
                           >
                             <i className="fas fa-edit"></i>
                           </button>
+                          {user?.role === 'admin' && !resident.userId && resident.email && resident.status === 'Active' && (
+                            <button className="action-btn edit" onClick={() => {
+                              setAccountResident(resident);
+                              setAccountForm({ username: resident.email.split('@')[0], password: '' });
+                            }} title="Create resident login" aria-label={`Create login for ${resident.name}`}>
+                              <i className="fas fa-user-plus"></i>
+                            </button>
+                          )}
+                          {resident.userId && <span className="role-badge-cell" title="Resident login is linked">Login linked</span>}
                           <button 
                             className="action-btn toggle"
                             onClick={() => handleToggleStatus(resident.id)}
@@ -386,29 +458,24 @@ const Residents = () => {
 
                 <div className="form-group">
                   <label>Flat Number *</label>
-                  <input
-                    type="text"
-                    name="flatNumber"
-                    value={formData.flatNumber}
+                  <select
+                    name="flatId"
+                    value={formData.flatId}
                     onChange={handleInputChange}
-                    placeholder="e.g., A-101"
                     required
-                  />
+                  >
+                    <option value="">Select an existing flat</option>
+                    {flats.map(flat => (
+                      <option key={flat.flat_id} value={flat.flat_id}>
+                        {flat.flat_number} ({flat.block_name})
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="form-group">
                   <label>Block *</label>
-                  <select
-                    name="block"
-                    value={formData.block}
-                    onChange={handleInputChange}
-                    required
-                  >
-                    <option value="A">Block A</option>
-                    <option value="B">Block B</option>
-                    <option value="C">Block C</option>
-                    <option value="D">Block D</option>
-                  </select>
+                  <input type="text" value={formData.block ? `Block ${formData.block}` : ''} readOnly required />
                 </div>
 
                 <div className="form-group">
@@ -421,6 +488,7 @@ const Residents = () => {
                   >
                     <option value="Owner">Owner</option>
                     <option value="Tenant">Tenant</option>
+                    <option value="Family Member">Family Member</option>
                   </select>
                 </div>
 
@@ -470,6 +538,19 @@ const Residents = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {accountResident && (
+        <div className="modal-overlay" onClick={() => !savingAccount && setAccountResident(null)}>
+          <form className="modal glass" onSubmit={createLogin} onClick={event => event.stopPropagation()}>
+            <div className="modal-header"><h2>Create Resident Login</h2><button type="button" className="modal-close" onClick={() => setAccountResident(null)}><i className="fas fa-times"></i></button></div>
+            <div className="modal-body">
+              <p>Create an account for {accountResident.name} ({accountResident.email}). The resident role and email are set from this record.</p>
+              <div className="form-group"><label>Username *</label><input required minLength="3" maxLength="100" value={accountForm.username} onChange={event => setAccountForm({ ...accountForm, username: event.target.value })} /></div>
+              <div className="form-group"><label>Temporary Password *</label><input required type="password" minLength="8" maxLength="72" autoComplete="new-password" value={accountForm.password} onChange={event => setAccountForm({ ...accountForm, password: event.target.value })} /><small>Use 8 to 72 characters, then share it directly with the resident.</small></div>
+            </div>
+            <div className="modal-footer"><button type="button" className="btn-secondary" onClick={() => setAccountResident(null)}>Cancel</button><button type="submit" className="btn-primary" disabled={savingAccount}>{savingAccount ? 'Creating...' : 'Create Login'}</button></div>
+          </form>
         </div>
       )}
     </div>

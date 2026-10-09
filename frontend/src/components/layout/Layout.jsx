@@ -5,7 +5,7 @@ import './Layout.css';
 
 const Layout = ({ children }) => {
   const { user, logout } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 992);
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [isResizing, setIsResizing] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 992);
@@ -20,7 +20,8 @@ const Layout = ({ children }) => {
     const savedState = localStorage.getItem('sidebarOpen');
 
     if (savedWidth) setSidebarWidth(Number(savedWidth));
-    if (savedState !== null) setSidebarOpen(savedState === 'true');
+    // On mobile, start with the drawer closed so it cannot cover the page.
+    if (window.innerWidth > 992 && savedState !== null) setSidebarOpen(savedState === 'true');
 
     const handleResize = () => {
       const width = window.innerWidth;
@@ -99,9 +100,17 @@ const Layout = ({ children }) => {
         <div className="content-wrapper">{children}</div>
       </main>
 
-      {isMobile && sidebarOpen && (
-        <div className="sidebar-overlay" onClick={toggleSidebar}></div>
+      {isMobile && !sidebarOpen && (
+        <button
+          type="button"
+          className="mobile-menu-toggle"
+          onClick={toggleSidebar}
+          aria-label="Open navigation menu"
+        >
+          <i className="fas fa-bars"></i>
+        </button>
       )}
+
     </div>
   );
 };

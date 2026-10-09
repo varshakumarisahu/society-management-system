@@ -98,6 +98,16 @@
   transform: scale(1.05);
 }
 
+.notifications-list a.notification-item {
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+}
+
+.notifications-list .notification-item.unread {
+  border-left-color: #6366f1;
+}
+
 .badge {
   position: absolute;
   top: -4px;

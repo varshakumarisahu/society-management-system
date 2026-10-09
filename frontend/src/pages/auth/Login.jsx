@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import './Login.css';
@@ -24,33 +24,43 @@ const Login = () => {
     try {
       await login(email, password);
       navigate(from, { replace: true });
-    } catch (err) {
+    } catch {
       // error is already set in context
     }
   };
 
   return (
     <div className="login-container">
-      {/* Left gradient panel */}
+      <div className="login-shell">
       <div className="login-hero">
-        <h1>Manage your society: residents, flats, and visitors in one place</h1>
+        <div className="hero-brand"><span className="hero-brand-icon"><i className="fas fa-building"></i></span><span>SocietyMS</span></div>
+        <div className="hero-copy">
+          <span className="hero-eyebrow">SOCIETY MANAGEMENT</span>
+          <h1>Your community,<br />running smoothly.</h1>
+          <p>One place for residents, homes, visitors, and the everyday work of your society.</p>
+          <div className="hero-feature-list">
+            <span><i className="fas fa-check-circle"></i> Resident and flat records</span>
+            <span><i className="fas fa-check-circle"></i> Notices, complaints, and maintenance</span>
+            <span><i className="fas fa-check-circle"></i> Visitor check-in and history</span>
+          </div>
+        </div>
+        <div className="hero-footer">A clearer view of your society, every day.</div>
       </div>
 
-      {/* Right form panel */}
       <div className="login-form-panel">
         <div className="login-box">
           <div className="login-header">
             <div className="login-logo">
-              <i className="fas fa-building"></i>
-              <span>SocietyMS</span>
+              <span className="login-logo-icon"><i className="fas fa-building"></i></span>
+              <span className="login-logo-name">SocietyMS</span>
             </div>
-            <h2>Welcome Back</h2>
-            <p>Sign in to your account to continue</p>
+            <h2>Welcome back</h2>
+            <p>Sign in with your society account to continue.</p>
           </div>
 
           <form onSubmit={handleSubmit} className="login-form">
-            <div className="form-group">
-              <label htmlFor="email">Email Address</label>
+            <div className="login-field">
+              <label htmlFor="email">Email address</label>
               <div className="input-icon-wrapper">
                 <i className="fas fa-envelope"></i>
                 <input
@@ -65,7 +75,7 @@ const Login = () => {
               </div>
             </div>
 
-            <div className="form-group">
+            <div className="login-field">
               <label htmlFor="password">Password</label>
               <div className="input-icon-wrapper">
                 <i className="fas fa-lock"></i>
@@ -82,6 +92,8 @@ const Login = () => {
                   type="button"
                   className="toggle-password"
                   onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
                 >
                   <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
                 </button>
@@ -105,15 +117,10 @@ const Login = () => {
               )}
             </button>
 
-            <div className="login-footer">
-              <p>Demo Credentials:</p>
-              <div className="demo-credentials">
-                <span>Admin: admin@society.com / admin123</span>
-                <span>Resident: resident@society.com / resident123</span>
-              </div>
-            </div>
+            <p className="login-help">Use the username or email and password provided by your society administrator.</p>
           </form>
         </div>
+      </div>
       </div>
     </div>
   );

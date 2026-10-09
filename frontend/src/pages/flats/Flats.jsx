@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { apiRequest, apiJson } from '../../services/api';
 import './Flats.css';
 
 // Mock Data
@@ -78,13 +80,18 @@ const MOCK_FLATS = [
 ];
 
 const Flats = () => {
-  const [flats, setFlats] = useState(MOCK_FLATS);
-  const [filteredFlats, setFilteredFlats] = useState(MOCK_FLATS);
-  const [loading, setLoading] = useState(false);
+  const [flats, setFlats] = useState([]);
+  const [filteredFlats, setFilteredFlats] = useState([]);
+  const [blocks, setBlocks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [editingFlat, setEditingFlat] = useState(null);
+  const [flatResidents, setFlatResidents] = useState([]);
+  const [residentsLoading, setResidentsLoading] = useState(false);
+  const [residentsError, setResidentsError] = useState('');
   const [formData, setFormData] = useState({
     flatNumber: '',
     block: 'A',
@@ -95,6 +102,27 @@ const Flats = () => {
     residentsCount: 0,
     parkingSlot: ''
   });
+
+  const loadFlats = async () => {
+    setLoading(true);
+    try {
+      const [result, blockRows] = await Promise.all([
+        apiRequest('/api/v1/flats'), apiRequest('/api/v1/blocks')
+      ]);
+      setFlats(result.items.map(f => ({
+        id: f.flat_id, flat_id: f.flat_id, block_id: f.block_id,
+        flatNumber: f.flat_number, block: f.block_name.replace(/^Block\s+/i, ''),
+        floor: f.floor, area: f.area_sqft ? `${f.area_sqft} sq.ft` : '',
+        status: f.occupancy_status[0].toUpperCase() + f.occupancy_status.slice(1),
+        ownerName: f.owner_name || '', currentResident: f.owner_name,
+        residentsCount: f.residents_count, parkingSlot: f.parking_slot || ''
+      })));
+      setBlocks(blockRows);
+      setError('');
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { loadFlats(); }, []);
 
   // Filter flats
   useEffect(() => {
@@ -128,6 +156,8 @@ const Flats = () => {
 
   const handleAddNew = () => {
     setEditingFlat(null);
+    setFlatResidents([]);
+    setResidentsError('');
     setFormData({
       flatNumber: '',
       block: 'A',
@@ -144,39 +174,59 @@ const Flats = () => {
   const handleEdit = (flat) => {
     setEditingFlat(flat);
     setFormData(flat);
+    setFlatResidents([]);
+    setResidentsError('');
+    setResidentsLoading(true);
     setShowModal(true);
+    apiRequest(`/residents/?flat_id=${flat.id}`)
+      .then(setFlatResidents)
+      .catch(e => setResidentsError(e.message))
+      .finally(() => setResidentsLoading(false));
   };
 
-  const handleSave = () => {
-    if (editingFlat) {
-      setFlats(flats.map(f => 
-        f.id === editingFlat.id ? { ...formData, id: f.id } : f
-      ));
-    } else {
-      const newFlat = {
-        ...formData,
-        id: flats.length + 1,
-        currentResident: formData.status === 'Occupied' ? formData.ownerName : null
-      };
-      setFlats([...flats, newFlat]);
-    }
-    setShowModal(false);
+  const handleSave = async () => {
+    const block = blocks.find(b => b.name.replace(/^Block\s+/i, '') === formData.block);
+    if (!block) { setError('Select a valid block.'); return; }
+    const payload = {
+      block_id: block.block_id, flat_number: formData.flatNumber,
+      floor: Number(formData.floor) || 0,
+      area_sqft: Number.parseFloat(formData.area) || null,
+      parking_slot: formData.parkingSlot || null,
+      occupancy_status: formData.status.toLowerCase()
+    };
+    try {
+      const savedFlat = await apiRequest(editingFlat ? `/api/v1/flats/${editingFlat.id}` : '/api/v1/flats',
+        apiJson(editingFlat ? 'PUT' : 'POST', payload));
+      if (formData.ownerName.trim()) {
+        try {
+          const flatResidents = await apiRequest(`/residents/?flat_id=${savedFlat.flat_id}`);
+          const owner = flatResidents.find(r => r.resident_type === 'owner');
+          const ownerPayload = {
+            full_name: formData.ownerName.trim(), flat_id: savedFlat.flat_id,
+            resident_type: 'owner', status: 'active', is_primary_contact: true
+          };
+          await apiRequest(owner ? `/residents/${owner.resident_id}` : '/residents/',
+            apiJson(owner ? 'PATCH' : 'POST', ownerPayload));
+        } catch (ownerError) {
+          setError(`Flat saved, but its owner was not saved: ${ownerError.message}`);
+          await loadFlats(); setShowModal(false);
+          return;
+        }
+      }
+      await loadFlats(); setShowModal(false); setError('');
+    } catch (e) { setError(e.message); }
   };
 
   const handleDelete = (id) => {
     if (window.confirm('Are you sure you want to delete this flat?')) {
-      setFlats(flats.filter(f => f.id !== id));
+      apiRequest(`/api/v1/flats/${id}`, { method: 'DELETE' }).then(loadFlats).catch(e => setError(e.message));
     }
   };
 
   const handleToggleStatus = (id) => {
-    setFlats(flats.map(f => 
-      f.id === id ? { 
-        ...f, 
-        status: f.status === 'Occupied' ? 'Vacant' : 'Occupied',
-        currentResident: f.status === 'Occupied' ? null : f.ownerName
-      } : f
-    ));
+    const flat = flats.find(f => f.id === id);
+    apiRequest(`/api/v1/flats/${id}`, apiJson('PUT', { occupancy_status: flat.status === 'Occupied' ? 'vacant' : 'occupied' }))
+      .then(loadFlats).catch(e => setError(e.message));
   };
 
   const getStatusBadge = (status) => {
@@ -201,6 +251,7 @@ const Flats = () => {
           </button>
         </div>
       </div>
+      {error && <div role="alert" className="error-message">{error}</div>}
 
       {/* Search and Filter */}
       <div className="search-filter-section glass">
@@ -343,10 +394,10 @@ const Flats = () => {
                     onChange={handleInputChange}
                     required
                   >
-                    <option value="A">Block A</option>
-                    <option value="B">Block B</option>
-                    <option value="C">Block C</option>
-                    <option value="D">Block D</option>
+                    {blocks.map(block => {
+                      const shortName = block.name.replace(/^Block\s+/i, '');
+                      return <option key={block.block_id} value={shortName}>{block.name}</option>;
+                    })}
                   </select>
                 </div>
 
@@ -396,18 +447,7 @@ const Flats = () => {
                     onChange={handleInputChange}
                     placeholder="Enter owner name"
                   />
-                </div>
-
-                <div className="form-group">
-                  <label>Residents Count</label>
-                  <input
-                    type="number"
-                    name="residentsCount"
-                    value={formData.residentsCount}
-                    onChange={handleInputChange}
-                    min="0"
-                    max="20"
-                  />
+                  <small>Saving an owner name also adds that person to Residents.</small>
                 </div>
 
                 <div className="form-group">
@@ -421,6 +461,37 @@ const Flats = () => {
                   />
                 </div>
               </div>
+
+              {editingFlat && (
+                <section className="flat-residents-section">
+                  <div className="flat-residents-heading">
+                    <div>
+                      <h3>Residents of this flat</h3>
+                      <span>{residentsLoading ? 'Loading residents...' : `${flatResidents.length} registered`}</span>
+                    </div>
+                    <Link to="/residents">Manage residents</Link>
+                  </div>
+                  {residentsError ? (
+                    <p className="flat-residents-empty">Could not load residents: {residentsError}</p>
+                  ) : residentsLoading ? null : flatResidents.length === 0 ? (
+                    <p className="flat-residents-empty">No residents are registered for this flat yet.</p>
+                  ) : (
+                    <div className="flat-residents-list">
+                      {flatResidents.map(resident => (
+                        <div className="flat-resident-card" key={resident.resident_id}>
+                          <div className="flat-resident-avatar">{resident.full_name?.charAt(0)?.toUpperCase() || '?'}</div>
+                          <div className="flat-resident-details">
+                            <strong>{resident.full_name}</strong>
+                            <span>{resident.resident_type.replaceAll('_', ' ')}</span>
+                            <small>{[resident.phone, resident.email].filter(Boolean).join(' · ') || 'No contact details'}</small>
+                          </div>
+                          {resident.is_primary_contact && <span className="primary-contact-badge">Primary contact</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
             </div>
 
             <div className="modal-footer">

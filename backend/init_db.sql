@@ -90,6 +90,7 @@ CREATE TABLE flats (
     flat_type           VARCHAR(20),
     area_sqft           NUMERIC(10,2),
     occupancy_status    VARCHAR(20) NOT NULL CHECK (occupancy_status IN ('occupied', 'vacant', 'rented')),
+    parking_slot        VARCHAR(50),
     created_at          TIMESTAMP NOT NULL DEFAULT now(),
     updated_at          TIMESTAMP NOT NULL DEFAULT now(),
     UNIQUE(block_id, flat_number)
@@ -281,6 +282,12 @@ VALUES (
     'admin', 
     'active'
 );
+
+INSERT INTO blocks (name, total_floors) VALUES
+  ('Block A', 5),
+  ('Block B', 5),
+  ('Block C', 5),
+  ('Block D', 5);
 -- ============================================================================
 -- END OF SCHEMA (15 tables)
 -- ============================================================================
